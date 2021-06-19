@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>2017203072 설지우</title>
+    <style>
+        body {
+            background:rgb(246,246,246);
+        }
+
+        div {
+            text-align: center;
+        }
+
+        .move_div {
+            display: flex;
+        }
+
+        img {
+            width: 50px;
+            height: 50px;
+            object-fit: cover;
+            margin: 20px auto;
+        }
+
+        #canvas {
+            margin: 10px 20px 30px 20px;
+            border: thin solid #000000;
+            cursor: default;
+        }
+    </style>
+</head>
+<body>
+    <div>
+        <canvas id="canvas" width="360" height="640">Canvas 지원 안됨</canvas>
+        <div class="move_div">
+            <img id="btn_prev" src="images/btn_prev.png" alt="이전 버튼" />
+            <h1 id="frame_name">화면 0</h1>
+            <img id="btn_next" src="images/btn_next.png" alt="다음 버튼" />
+        </div>
+        <p>&#60; 클릭하면 이전화면으로 이동합니다. &#62; 클릭하면 다음화면으로 이동합니다.</p>
+    </div>
+    <script type="text/javascript">
+        var canvas = document.getElementById('canvas'),
+            context = canvas.getContext('2d'),
+            
+            // 화면 이동 시 클릭 버튼 and 화면 객체 리스트
+            btn_prev = document.getElementById('btn_prev'),
+            btn_next = document.getElementById('btn_next'),
+            frame_name = document.getElementById('frame_name'),
+            
+            // 화면 상태 (0~2)
+            state = 0,
+            MAXIMUM_STATE = 2,
+            MINIMUM_STATE = 0,
+            HOME_STATE = 0,
+            GAME_STATE = 1,
+            UPGRADE_STATE = 2,
+            
+            // 펭귄 color
+            PENGUIN_COLORS = ['#323BD6', '#D631C9', '#200B00'],  // blue, pink, black
+            p_color_idx = 0,
+            penguins = [],
+
+            // 물고기 머니
+            money = 3095,
+            money_texts = [],
+            money_btns = [];
+
+
+        // 객체들
+        var Shape = function() {
+            this.fillStyle = 'white';
+            this.strokeStyle = 'black';
+        }
+
+        Shape.prototype = {
+            createPath: function(ctx) {
+                throw 'createPath는 아직 구현 안 되었다.';
+            },
+
+            draw: function(ctx) {          // 공용 메소드
+                ctx.save();
+                ctx.fillStyle = this.fillStyle;
+                ctx.strokeStyle = this.strokeStyle;
+                
+                this.createPath(ctx);
+                ctx.restore();
+            }
+        };
+
+
+        // 직선
+        var Line = function(points, stroke_color, line_width) {
+            Shape.call(this);
+
+            this.points = points;
+            this.strokeStyle = stroke_color;
+            this.line_width = line_width;
+        };
+
+        // 상속 : 부모 : Shape, 자식 : Line
+        Line.prototype = Object.create(Shape.prototype);
+        Line.prototype.constructor = Line;
+
+        Line.prototype.createPath = function(ctx) {
+            ctx.lineWidth = this.line_width;
+            ctx.lineCap = 'square';
+
+            ctx.beginPath();
+            ctx.moveTo(this.points[0].x, this.points[0].y);
+            ctx.lineTo(this.points[1].x, this.points[1].y);
+            ctx.stroke();
+        };
+
+
+        // 베지어 곡선
+        var BezeirCurve = function(endPoints, controlPoints, stroke_color, line_width) {
+            Shape.call(this);
+
+            this.endPoints = endPoints;
+            this.controlPoints = controlPoints;
+            this.strokeStyle = stroke_color;
+            this.lineWidth = line_width;
+        };
+
+        // 상속 : 부모 : Shape, 자식 : BezierCurve
+        BezeirCurve.prototype = Object.create(Shape.prototype);
+        BezeirCurve.prototype.constructor = BezeirCurve;
+
+        BezeirCurve.prototype.createPath = function(ctx) {
+            ctx.lineWidth = this.lineWidth;
+            ctx.lineCap = 'square';
+
+            ctx.beginPath();
+            ctx.moveTo(this.endPoints[0].x, this.endPoints[0].y);
+            ctx.bezierCurveTo(this.controlPoints[0].x, this.controlPoints[0].y,
+                                this.controlPoints[1].x, this.controlPoints[1].y,
+                                this.endPoints[1].x, this.endPoints[1].y);
+            ctx.stroke();
+        };
+
+        // 삼각형
+        var Triangle = function(points, stroke_color, fill_color, filled, line_width) {
+            Shape.call(this);
+
+            this.points = points;
+            this.strokeStyle = stroke_color;
+            this.fillStyle = fill_color;
+            this.filled = filled;
+            this.line_width = line_width;
+        };
+
+        // 상속 : 부모 : Shape, 자식 : Triangle
+        Triangle.prototype = Object.create(Shape.prototype);
+        Triangle.prototype.constructor = Triangle;
+
+        Triangle.prototype.createPath = function(ctx) {
+            ctx.lineWidth = this.line_width;
+
+            ctx.beginPath();
+            ctx.moveTo(this.points[0].x, this.points[0].y);
+            ctx.lineTo(this.points[1].x, this.points[1].y);
+            ctx.lineTo(this.points[2].x, this.points[2].y);
+            ctx.closePath();
+            if(this.filled)
+                ctx.fill();
+            ctx.stroke();
+        };
+
+        // 원
+        var Circle = function(x, y, radius, start_angle, end_angle, fill_color, stroke_color, direction) {
+            Shape.call(this);
+
+            this.x = x;
+            this.y = y;
+            this.radius = radius;
+            this.start_angle = start_angle;
+            this.end_angle = end_angle;
+            this.direction = typeof direction !== undefined ? direction: true;
+
+            this.fillStyle = fill_color;
+            this.strokeStyle = stroke_color;
+        };
+
+        // 상속 : 부모 : Shape, 자식 : Circle
+        Circle.prototype = Object.create(Shape.prototype);
+        Circle.prototype.constructor = Circle;
+
+        Circle.prototype.createPath = function(ctx) {
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, this.start_angle, this.end_angle, this.direction);
+            ctx.stroke();
+            ctx.fill();
+        };
+
+        // 사각형
+        var Rectangle = function(x, y, rect_width, rect_height, stroke_color, fill_color) {
+            Shape.call(this);
+
+            this.x = x;
+            this.y = y;
+            this.rect_width = rect_width;
+            this.rect_height = rect_height;
+            
+            this.fillStyle = typeof fill_color !== undefined ? fill_color: 'white';
+            this.strokeStyle = typeof stroke_color !== undefined ? stroke_color: 'black';
+        };
+
+        // 상속 : 부모 : Shape, 자식 : Rectangle
+        Rectangle.prototype = Object.create(Shape.prototype);
+        Rectangle.prototype.constructor = Rectangle;
+
+        Rectangle.prototype.createPath = function(ctx) {
+            ctx.lineWidth = 5;
+            ctx.lineJoin = 'round';
+
+            ctx.beginPath();
+            ctx.rect(this.x, this.y, this.rect_width, this.rect_height);
+            ctx.stroke();
+            ctx.fill();
+        };
+
+        // 다각형       
+        var Point = function (x, y) {
+            this.x = x;
+            this.y = y;
+        };
+
+        var Polygon = function(x, y, r, sides, start_angle, stroke_color, fill_color) {
+            Shape.call(this);
+
+            this.x = x;
+            this.y = y;
+            this.r = r;
+            this.sides = sides;
+            this.start_angle = start_angle;
+            this.fillStyle = fill_color;
+            this.strokeStyle = stroke_color;
+        };
+
+        // 상속 : 부모 : Shape, 자식 : Polygon
+        Polygon.prototype = Object.create(Shape.prototype);
+        Polygon.prototype.constructor = Polygon;
+
+        Polygon.prototype.getPoints = function() {
+            var points = [],
+                angle = this.start_angle || 0;
+
+            for (var i=0; i < this.sides; ++i) {
+                points.push(new Point(this.x + this.r * Math.sin(angle),
+                                this.y - this.r * Math.cos(angle)));
+                angle += 2*Math.PI/this.sides;
+            }
+            return points;
+        };
+
+        Polygon.prototype.createPath = function(ctx) {
+            var points = this.getPoints();
+
+            ctx.beginPath();
+            ctx.moveTo(points[0].x, points[0].y);
+
+            for (var i=1; i < this.sides; ++i) {
+                ctx.lineTo(points[i].x, points[i].y);
+            }
+            ctx.closePath();
+            ctx.stroke();
+            ctx.fill();
+        };
+
+
+        // 텍스트
+        var Text = function(font, x, y, text, fill_color, stroke_color) {
+            this.font = font;
+            this.x = x;
+            this.y = y;
+            this.text = text;
+
+            this.fillStyle = typeof fill_color !== undefined ? fill_color: 'black';
+            this.strokeStyle = typeof stroke_color !== undefined ? stroke_color: 'black';
+        };
+
+        Text.prototype = {
+            drawText: function(ctx, text, x, y) {
+                ctx.save();
+
+                ctx.lineWidth = 1;
+                ctx.font = this.font;
+                ctx.fillStyle = this.fillStyle;
+                ctx.strokeStyle = this.strokeStyle;
+
+                ctx.fillText(text, x, y);
+                ctx.strokeText(text, x, y);
+                ctx.restore();
+            },
+            setColor: function(fill_color, stroke_color) {
+                this.fillStyle = fill_color;
+                this.strokeStyle = stroke_color;
+            },
+            setText: function(text) {
+                this.text = text;
+            },
+        };
+
+
+        // 이미지 객체
+        var CustomImage = function(src_name, x, y, dw, dh) {
+            this.src_name = src_name;
+            this.x = x;
+            this.y = y;
+            this.dw = dw;
+            this.dh = dh;
+        }
+
+        CustomImage.prototype = {
+            drawImage: function(ctx) {
+                var display = this, img = new Image();
+                img.src = this.src_name;
+                img.onload = function() {
+                    ctx.drawImage(img, display.x, display.y, display.dw, display.dh);
+                };
+            }
+        };
+
+        
+        // 펭귄 객체
+        var Penguin = function(color) {
+            this.color = color;
+            this.body_color = '#FFF8E4';
+            this.foot_color = '#F8A519';
+            this.p_dark_color = '#2830A3';
+
+            this.front = [];
+            this.back = [];
+            this.gap = -5;
+            this.left_x = 127;
+            this.right_x = 229;
+
+            // 앞모습
+            // 팔 - 원
+            this.front.push(new Circle(190, 472, 80, Math.PI*4/3, Math.PI*14/15, this.color, this.color, true));
+            this.front.push(new Circle(175, 475, 80, Math.PI*5/3, Math.PI/16, this.color, this.color, false));
+
+            // 다리 - 다각형, 사각형
+            this.front.push(new Polygon(157, 547, 10, 5, Math.PI/4, this.foot_color, this.foot_color));
+            this.front.push(new Polygon(202.5, 547, 10, 5, -Math.PI/4, this.foot_color, this.foot_color));
+            this.front.push(new Rectangle(153, 519, 10, 20, this.body_color, this.body_color));
+            this.front.push(new Rectangle(197, 519, 10, 20, this.body_color, this.body_color));
+
+            // 몸통, 얼굴 - 원, 사각형
+            this.front.push(new Circle(155, 452, 80, Math.PI/3, -Math.PI/3, this.color, this.color, true));
+            this.front.push(new Circle(207, 452, 80, (Math.PI*2)/3, -(Math.PI*2)/3, this.color, this.color, false));
+            this.front.push(new Circle(180, 355, 55, Math.PI/3, Math.PI*2/3, this.color, this.color, true));
+            this.front.push(new Rectangle(142, 390, 75, 129, this.body_color, this.body_color));
+            this.front.push(new Triangle([{x:200, y:280}, {x:158, y:304}, {x:190, y:318}], this.color, this.color, true));
+
+            // 펭귄 눈, 입 - 이미지
+            this.front.push(new CustomImage('images/penguin_face.png', 115, 316, 135, 128));
+
+            // 삼각형 - 머리 음영
+            this.front.push(new Triangle([{x:200, y:280}, {x:205, y:305}, {x:190, y:318}], this.p_dark_color, this.p_dark_color, true));
+
+            // 뒷모습
+            // 팔
+            this.back.push(new Rectangle(127, 495, 30, 3, this.color, this.color));
+            this.back.push(new Rectangle(199, 495, 30, 3, this.color, this.color));
+
+            // 몸통
+            this.back.push(new Rectangle(160, 544, 35, 10, this.body_color, this.body_color));
+            this.back.push(new Rectangle(160, 490, 35, 54, this.color, this.color));
+            this.back.push(new Polygon(182, 560, 10, 5, Math.PI/4, this.foot_color, this.foot_color));
+
+            // 얼굴
+            this.back.push(new Circle(177, 467, 28, Math.PI/3, Math.PI*2/3, this.color, this.color, true));
+            this.back.push(new Triangle([{x:185, y:430}, {x:165, y:444}, {x:185, y:453}], this.color, this.color, true));
+
+            // 삼각형 - 머리 음영
+            this.back.push(new Triangle([{x:185, y:430}, {x:193, y:444}, {x:185, y:453}], this.p_dark_color, this.p_dark_color, true));
+        };
+
+        Penguin.prototype = {
+            drawPenguin: function(ctx, i) {
+                if(i == GAME_STATE) 
+                    tmp_list = this.back;
+                else
+                    tmp_list = this.front;
+
+                for(let i=0; i<tmp_list.length; i++) {
+                    if(tmp_list[i] instanceof CustomImage) 
+                        tmp_list[i].drawImage(ctx);
+                    else 
+                        tmp_list[i].draw(ctx);
+                }
+            },
+            updateGap: function() {
+                if(this.gap < 0 && (this.gap+this.left_x) <= 30) 
+                    this.gap = +5;
+                if(this.gap > 0 && (this.gap+this.right_x) >= 320)
+                    this.gap = -5;
+
+                this.left_x += this.gap;
+                this.right_x += this.gap;
+
+                this.back.forEach(item => {
+                    if(item instanceof Triangle) {
+                        item.points.forEach(i => {
+                            i.x += this.gap;
+                        });
+                    } else
+                        item.x += this.gap;
+                });
+            },
+            updateColor: function(color) {
+                this.color = color;
+                if(this.color == PENGUIN_COLORS[0])
+                    this.p_dark_color = '#2830A3';
+                else if(this.color == PENGUIN_COLORS[1])
+                    this.p_dark_color = '#6B1264';
+                else if(this.color == PENGUIN_COLORS[2])
+                    this.p_dark_color = '#4B291F';
+
+                // 뒷모습
+                for(let i=0; i<this.back.length; i++) {
+                    if(this.back[i] instanceof Polygon)
+                        continue;
+
+                    if(i == (this.back.length-1)) {   // 머리 음영
+                        this.back[i].fillStyle = this.p_dark_color;
+                        this.back[i].strokeStyle = this.p_dark_color;
+                    } else if(i != 2) {  
+                        this.back[i].fillStyle = this.color;
+                        this.back[i].strokeStyle = this.color;
+                    }
+                }
+
+                // 앞모습
+                for(let i=0; i<this.front.length; i++) {
+                    if(this.front[i] instanceof Polygon || this.front[i] instanceof Rectangle)
+                        continue;
+
+                    if(i == (this.front.length-1)) {   // 머리 음영
+                        this.front[i].fillStyle = this.p_dark_color;
+                        this.front[i].strokeStyle = this.p_dark_color;
+                    } else if(i != 2) {  // 몸통
+                        this.front[i].fillStyle = this.color;
+                        this.front[i].strokeStyle = this.color;
+                    }
+                }
+            }
+        };
+
+        // Frame 객체
+        var Frame = function(state) {
+            this.state = state;
+            this.obj_list = [];
+        };
+
+        Frame.prototype = {
+            clearScreen: function() {
+                // top to bottom 그라데이션
+                var grd = context.createLinearGradient(0, 0, 0, 170);
+                grd.addColorStop(0, "#0B88D8");
+                grd.addColorStop(1, "#E6F7FE");
+
+                context.fillStyle = grd;
+                context.fillRect(0, 0, canvas.width, canvas.height);
+
+                // 디버깅
+                //drawGrid('lightgray', 10, 10);
+            },
+
+            addObj: function(obj) {
+                this.obj_list.push(obj)
+            },
+
+            update: function() {
+                this.clearScreen();
+
+                for(i = 0; i < this.obj_list.length; i++) {
+                    tmp = this.obj_list[i];
+
+                    if(tmp instanceof Text) {
+                        tmp.drawText(context, tmp.text, tmp.x, tmp.y);
+                    } else if(tmp instanceof CustomImage) {
+                        tmp.drawImage(context);
+                    } else if(tmp instanceof Penguin) {
+                        // 화면에 따라 펭귄 앞/뒤 그리기
+                        tmp.drawPenguin(context, state);
+                    } else {
+                        tmp.draw(context);
+                    }
+                }
+            }
+        }
+
+
+        //////////////////////////////////////////////////////////////////////////
+        //////////////////////////////////////////////////////////////////////////
+
+        function drawGrid(color, stepx, stepy) {
+            context.save()
+
+            context.shadowColor = undefined;
+            context.shadowBlur = 0;
+            context.shadowOffsetX = 0;
+            context.shadowOffsetY = 0;
+            
+            context.strokeStyle = color;
+            context.fillStyle = '#ffffff';
+            context.lineWidth = 0.5;
+            context.fillRect(0, 0, context.canvas.width, context.canvas.height);
+
+            // 회색 그리기
+            context.beginPath();
+            for (let i = stepx + 0.5; i < context.canvas.width; i += stepx) {
+                context.moveTo(i, 0);
+                context.lineTo(i, context.canvas.height);
+            }
+            context.stroke();
+
+            context.beginPath();
+            for (let i = stepy + 0.5; i < context.canvas.height; i += stepy) {
+                context.moveTo(0, i);
+                context.lineTo(context.canvas.width, i);
+            }
+            context.stroke();
+
+            // 오렌지색 그리기
+            context.strokeStyle = "orange";
+
+            context.beginPath();
+            for(let i = 100; i < context.canvas.height; i += 100) {
+                context.moveTo(0, i);
+                context.lineTo(context.canvas.width, i);
+
+                context.moveTo(i, 0);
+                context.lineTo(i, context.canvas.height);
+            }
+            context.stroke();
+            
+            context.restore();
+        };
+
+
+        // State 마다 화면 바꾸기
+        function changeState() {
+            if(state > MAXIMUM_STATE)   
+                state = MAXIMUM_STATE;
+            else if(state < MINIMUM_STATE)  
+                state = MINIMUM_STATE;
+
+            frame_name.innerHTML = "화면 " + state;
+
+            // 화면이 바뀔때마다 canvas 업데이트 시켜줌
+            frame_list[state].update();
+        };
+
+        // 펭귄 color update하기
+        function updatePenguinColor(v) {
+            p_color_idx += v;
+            if(p_color_idx < 0)
+                p_color_idx = 0;
+            if(p_color_idx >= 3)
+                p_color_idx = 2;
+
+            // 앞, 뒤모습 색깔 바꾸기
+            for(let i=0; i<penguins.length; i++)
+                penguins[i].updateColor(PENGUIN_COLORS[p_color_idx]);
+
+            // 펭귄 다시 그리기
+            penguins[state].drawPenguin(context, state);
+        }
+
+        // 물고기 머니 update 하기
+        function updateMoney(v) {
+            if((money-v) < 0)
+                return;
+            money -= v;
+
+            // money text update
+            for(let i=0; i<3; i++) {
+                money_texts[i].text = money;
+            }
+
+            (new Rectangle(money_texts[state].x-10, money_texts[state].y-20, 80, 22, '#F5E9D1', '#F5E9D1')).draw(context);
+            money_texts[state].drawText(context, money, money_texts[state].x, money_texts[state].y);
+        }
+
+        // 마우스 이벤트
+        btn_prev.onclick = function() {
+            state -= 1;
+            changeState();
+        };
+        btn_next.onclick = function() {
+            state += 1;
+            changeState();
+        };
+
+        // 초기화
+        frame_list = [];
+
+        // 홈 화면 - 화면 0
+        frame_list.push(new Frame(HOME_STATE));
+        frame_list[0].addObj(new Text('20px impact', 20, 80, '파워업 아이템으로 게임을 더욱 쉽게!'));
+
+        // 사각형 - 얼음들
+        frame_list[0].addObj(new Rectangle(0, 560, 360, 50, 'rgba(219, 243, 255, 0.4)', 'rgba(219, 243, 255, 0.7)'));
+        frame_list[0].addObj(new Rectangle(0, 500, 360, 60, 'rgba(253, 254, 255, 0.8)', 'rgba(253, 254, 255, 0.8)'));
+        frame_list[0].addObj(new Rectangle(0, 370, 360, 30, 'rgba(253, 254, 255, 0.7)', 'rgba(253, 254, 255, 0.7)'));
+        frame_list[0].addObj(new Rectangle(0, 400, 360, 100, 'rgba(129, 231, 254, 0.8)', 'rgba(129, 231, 254, 0.8)'));
+
+        // 원 - 그림자
+        frame_list[0].addObj(new Circle(180, 585, 60, 0, Math.PI*2, 'rgba(0,0,0,0.5)', 'rgba(0,0,0,0.3)', true));
+
+        // 베지어곡선 - 밑바닥 
+        end1 = [{x:-20, y:605}, {x:380, y:605}];
+        control1 = [{x:20, y:645}, {x:340, y:645}];
+        frame_list[0].addObj(new BezeirCurve(end1, control1, "#B2875A", 75));
+
+        // 사각형 - 버튼
+        BUTTON_STROKE = '#382214';
+
+        frame_list[0].addObj(new Rectangle(10, 20, 180, 30, BUTTON_STROKE, '#F5E9D1'));
+
+        // 물고기 머니
+        money_texts.push(new Text('25px showcard gothic', 70, 44, money, 'white', BUTTON_STROKE));
+        frame_list[0].addObj(money_texts[0]);
+
+        frame_list[0].addObj(new Rectangle(170, 20, 180, 30, BUTTON_STROKE, '#EFBE00'));
+        frame_list[0].addObj(new Text('16px impact', 230, 42, '코인 구매'));
+        frame_list[0].addObj(new Rectangle(323, 45, 27, 10, '#DD040F', '#DD040F'));
+        frame_list[0].addObj(new Text('11px verdana', 323, 54, 'FREE', 'white', 'white'));
+        
+        // 500m 로켓 and 1000m 로켓
+        for(let i=0; i<2; i++) {
+            money_btns.push(new Path2D());
+            money_btns[i].rect(20+i*120, 100, 150, 100);
+        }
+
+        frame_list[0].addObj(new Rectangle(20, 100, 150, 100, BUTTON_STROKE, '#F5E9D1'));
+        frame_list[0].addObj(new Text('16px tahoma', 55, 118, '500m 로켓'));
+        frame_list[0].addObj(new Text('22px showcard gothic', 85, 193, '500', 'white', BUTTON_STROKE));
+        frame_list[0].addObj(new Rectangle(190, 100, 150, 100, BUTTON_STROKE, '#F5E9D1'));
+        frame_list[0].addObj(new Text('16px tahoma', 220, 118, '1000m 로켓'));
+        frame_list[0].addObj(new Text('22px showcard gothic', 253, 193, '1000', 'white', BUTTON_STROKE));
+
+        frame_list[0].addObj(new Rectangle(20, 230, 65, 40, BUTTON_STROKE, '#C8D1FC'));
+        frame_list[0].addObj(new Rectangle(20, 325, 65, 40, BUTTON_STROKE, '#C8D1FC'));
+        frame_list[0].addObj(new Rectangle(31, 332, 44, 27, '#4E465B', '#4E465B'));
+        frame_list[0].addObj(new Rectangle(10, 580, 60, 50, BUTTON_STROKE, '#C8D1FC'));
+        frame_list[0].addObj(new Rectangle(290, 580, 60, 50, BUTTON_STROKE, '#C8D1FC'));
+
+        // 그린 버튼 - greenBtn
+        var greenBtn = new Path2D();
+        greenBtn.rect(275, 230, 65, 40);
+        frame_list[0].addObj(new Rectangle(275, 230, 65, 40, BUTTON_STROKE, '#C8D1FC'));
+
+        // 오케이 버튼 - OkayBtn
+        var okayBtn = new Path2D();
+        okayBtn.rect(100, 580, 160, 50);
+        frame_list[0].addObj(new Rectangle(100, 580, 160, 50, 'white', '#4FD512'));
+        frame_list[0].addObj(new Text('25px showcard gothic', 140, 615, '오케이!', 'white', 'white'));
+
+        //  직선 - "+"
+        p1 = [{x:190, y:27}, {x:190, y:43}];
+        p2 = [{x:181, y:35}, {x:199, y:35}];
+        frame_list[0].addObj(new Line(p1, 'black'));
+        frame_list[0].addObj(new Line(p2, 'black'));
+
+        // 이미지 - 생선, 아이템
+        frame_list[0].addObj(new CustomImage('images/fish.png', 2, 13, 50, 40));
+        frame_list[0].addObj(new CustomImage('images/fish.png', 205, 163, 50, 40));
+        frame_list[0].addObj(new CustomImage('images/fish.png', 40, 331, 50, 40));
+        frame_list[0].addObj(new CustomImage('images/fish.png', 35, 163, 50, 40));
+        frame_list[0].addObj(new CustomImage('images/game_item.png', 283, 230, 50, 40, BUTTON_STROKE, '#C8D1FC'));
+
+        // 다각형, 삼각형 - 로켓 그림
+        frame_list[0].addObj(new Polygon(100, 153, 14, 4, Math.PI/2, BUTTON_STROKE, '#FAF5E2'));
+        frame_list[0].addObj(new Polygon(272, 153, 17, 4, Math.PI/2, BUTTON_STROKE, '#FAF5E2'));
+        frame_list[0].addObj(new Triangle([{x:75, y:130}, {x:84, y:163}, {x:108, y:138}], '#38C409', '#38C409', true));
+        frame_list[0].addObj(new Triangle([{x:250, y:130}, {x:250, y:166}, {x:285, y:132}], '#38C409', '#38C409', true));
+        
+        // 다각형 - 선물상자
+        frame_list[0].addObj(new Polygon(320, 605, 22, 6, 0, BUTTON_STROKE, '#9613C5'));
+
+        // 삼각형 - 옷걸이
+        frame_list[0].addObj(new Triangle([{x:52.5, y:235}, {x:30, y:265}, {x:75, y:265}], BUTTON_STROKE, '#E0E0DE', true));
+
+        // 삼각형, 베지어곡선 - 뒤로가기
+        frame_list[0].addObj(new Triangle([{x:15, y:600}, {x:30, y:590}, {x:35, y:610}], BUTTON_STROKE, 'red', true));
+        frame_list[0].addObj(new BezeirCurve([{x:32, y:600}, {x:25, y:620}],
+                                [{x:70, y:595}, {x:75, y:615}],'red', 9));
+
+        // 직선 - 화살표
+        var arrow_red_left = new Path2D();
+        var arrow_red_right = new Path2D();
+        arrow_red_left.rect(20, 467, 55, 45);
+        arrow_red_right.rect(290, 467, 55, 45);
+
+        for(let i=0; i<2; i++) {
+            tmp_p1 = [{x:(50+25*i), y:470}, {x:(20+25*i), y:490}];
+            tmp_p2 = [{x:(20+25*i), y:492}, {x:(50+25*i), y:510}];
+
+            frame_list[0].addObj(new Line(tmp_p1, 'white', 16));
+            frame_list[0].addObj(new Line(tmp_p2, 'white', 16));
+            frame_list[0].addObj(new Line(tmp_p1, 'red', 8));
+            frame_list[0].addObj(new Line(tmp_p2, 'red', 8));
+        }
+
+        for(let i=0; i<2; i++) {
+            tmp_p1 = [{x:(290+25*i), y:470}, {x:(320+25*i), y:490}];
+            tmp_p2 = [{x:(320+25*i), y:492}, {x:(290+25*i), y:510}];
+
+            frame_list[0].addObj(new Line(tmp_p1, 'white', 16));
+            frame_list[0].addObj(new Line(tmp_p2, 'white', 16));
+            frame_list[0].addObj(new Line(tmp_p1, 'red', 8));
+            frame_list[0].addObj(new Line(tmp_p2, 'red', 8));
+        }
+
+        // 원 - 숫자 9 팝업
+        frame_list[0].addObj(new Circle(340, 230, 12, 0, Math.PI*2, 'red', 'red', false));
+        frame_list[0].addObj(new Text('22px showcard gothic', 334.5, 238, '9', 'white', 'black'));
+
+        //////////////////////////////////////////////////////////////////////////////////////////////////
+        //////////////////////////////////////////////////////////////////////////////////////////////////
+
+        // 게임 화면 - 화면 1
+        frame_list.push(new Frame(GAME_STATE));
+
+        // 베지어곡선 - 바다
+        frame_list[1].addObj(new BezeirCurve([{x:-20,y:365},{x:380,y:365}], [{x:100,y:315},{x:300,y:315}], '#2A82EC', 300));
+
+        // 삼각형, 사각형 - 트리
+        for(let i=0; i<2; i++) {
+            frame_list[1].addObj(new Rectangle(70+190*i, 160, 13, 50, '#CEC3BA', '#CEC3BA'));
+
+            for(let j=0; j<3; j++) {
+                frame_list[1].addObj(new Triangle([{x:(77+190*i),y:60+j*25},{x:(62+190*i)-j*10,y:100+j*35},{x:(92+190*i)+j*10,y:100+j*35}], '#C2D2B6', '#C2D2B6', true, 1));
+            }
+        }
+
+        // 사각형, 직선 - 얼음
+        frame_list[1].addObj(new Rectangle(0, 480, canvas.width, 160, '#D9F5FF', '#D9F5FF'));
+        frame_list[1].addObj(new Line([{x:260,y:480}, {x:324, y:canvas.height}], 'rgba(175,233,255,0.7)', 100));
+        frame_list[1].addObj(new Line([{x:280,y:480}, {x:344, y:canvas.height}], 'rgba(137,220,254,0.6)', 20));
+        frame_list[1].addObj(new Line([{x:40,y:480}, {x:-29, y:canvas.height}], 'rgba(175,233,255,0.7)', 70));
+
+        // 텍스트, 사각형, 삼각형 - 건물
+        frame_list[1].addObj(new Rectangle(110, 30, 140, 180, '#8B7E6D', '#C2AC95'));
+        frame_list[1].addObj(new Text('62px showcard gothic', 140, 80, '883', '#BAEFFF', '#0D2E8F'));
+        frame_list[1].addObj(new Triangle([{x:110,y:210},{x:-10,y:480},{x:370,y:480}], 'white', 'white', true, 1));
+        frame_list[1].addObj(new Triangle([{x:250,y:210},{x:110,y:210},{x:370,y:480}], 'white', 'white', true, 1));
+        frame_list[1].addObj(new Triangle([{x:140,y:180},{x:10,y:480},{x:340,y:480}], '#C59565', '#C59565', true, 1));
+        frame_list[1].addObj(new Triangle([{x:220,y:180},{x:140,y:180},{x:340,y:480}], '#C59565', '#C59565', true, 1));
+
+        frame_list[1].addObj(new Rectangle(140, 130, 80, 50, '#CBF3FB', '#CBF3FB'));
+        frame_list[1].addObj(new Triangle([{x:160,y:110},{x:140,y:128},{x:220,y:128}], '#CBF3FB', '#CBF3FB', true, 1));
+        frame_list[1].addObj(new Triangle([{x:200,y:110},{x:160,y:110},{x:220,y:128}], '#CBF3FB', '#CBF3FB', true, 1));
+
+        // 직선 - 건물 테두리
+        frame_list[1].addObj(new Line([{x:126,y:208},{x:126,y:128}], '#8B7E6D', 4));
+        frame_list[1].addObj(new Line([{x:234,y:208},{x:234,y:128}], '#8B7E6D', 4));
+        frame_list[1].addObj(new Line([{x:150,y:98},{x:210,y:98}], '#8B7E6D', 4));
+        frame_list[1].addObj(new Line([{x:150,y:98},{x:126,y:128}], '#8B7E6D', 4));
+        frame_list[1].addObj(new Line([{x:210,y:98},{x:234,y:128}], '#8B7E6D', 4));
+
+        frame_list[1].addObj(new Line([{x:138,y:183},{x:138,y:128}], '#8B7E6D', 2.5));
+        frame_list[1].addObj(new Line([{x:138,y:128},{x:160,y:110}], '#8B7E6D', 2.5));
+        frame_list[1].addObj(new Line([{x:160,y:110},{x:200,y:110}], '#8B7E6D', 2.5));
+        frame_list[1].addObj(new Line([{x:200,y:110},{x:222,y:128}], '#8B7E6D', 2.5));
+        frame_list[1].addObj(new Line([{x:222,y:128},{x:222,y:183}], '#8B7E6D', 2.5));
+
+        // 원, 삼각형 - 불
+        FIRE_GAP = 170
+        for(let i=0; i<2; i++) {
+            frame_list[1].addObj(new Circle(94+FIRE_GAP*i, 215, 25, 0, Math.PI*2, '#FFE661', '#FFE661'));
+
+            frame_list[1].addObj(new Triangle([{x:65+FIRE_GAP*i,y:230},{x:85+FIRE_GAP*i, y:265},{x:105+FIRE_GAP*i,y:265}], '#5E524A', '#5E524A', true, 1));
+            frame_list[1].addObj(new Triangle([{x:124+FIRE_GAP*i,y:230},{x:65+FIRE_GAP*i,y:230},{x:105+FIRE_GAP*i,y:265}], '#5E524A', '#5E524A', true, 1));
+        }
+
+        // 삼각형 - 건물 외벽 & 눈
+        frame_list[1].addObj(new Triangle([{x:0,y:400},{x:-14,y:480},{x:103,y:265}], '#C59565', '#C59565', true, 1));
+        frame_list[1].addObj(new Triangle([{x:103,y:250},{x:0,y:400},{x:103,y:265}], '#C59565', '#C59565', true, 1));
+        frame_list[1].addObj(new Triangle([{x:360,y:400},{x:374,y:480},{x:253,y:265}], '#C59565', '#C59565', true, 1));
+        frame_list[1].addObj(new Triangle([{x:253,y:250},{x:360,y:400},{x:253,y:265}], '#C59565', '#C59565', true, 1));
+
+        frame_list[1].addObj(new Triangle([{x:90,y:242},{x:0,y:400},{x:103,y:250}], 'white', 'white', true, 1));
+        frame_list[1].addObj(new Triangle([{x:90,y:242},{x:0,y:400},{x:0,y:335}], 'white', 'white', true, 1));
+        frame_list[1].addObj(new Triangle([{x:278,y:242},{x:360,y:400},{x:253,y:250}], 'white', 'white', true, 1));
+        frame_list[1].addObj(new Triangle([{x:278,y:242},{x:360,y:400},{x:320,y:335}], 'white', 'white', true, 1));
+        frame_list[1].addObj(new Triangle([{x:270,y:270},{x:360,y:400},{x:370,y:335}], 'white', 'white', true, 1));
+
+        // 텍스트, 사각형 - "BEST    0m"
+        frame_list[1].addObj(new Rectangle(140, 88, 99, 25, 'rgba(76,151,244,0.5)', 'rgba(62,66,91,0.5)'));
+        frame_list[1].addObj(new Text("16px monaco", 150, 106, 'Best     0m', 'white', 'white'));
+
+        // 이미지 - 생선
+        frame_list[1].addObj(new CustomImage('images/fish.png', 265, 30, 50, 40));
+        money_texts.push(new Text('22px showcard gothic', 310, 60, money, 'white', BUTTON_STROKE));
+        frame_list[1].addObj(money_texts[1]);
+
+        // 이미지 - 생선2
+        for(let i=0; i<4; i++) {
+            frame_list[1].addObj(new CustomImage('images/fish2.png', 100+21*i, 320-35*i, 50-9*i, 40-7*i));
+        }
+        frame_list[1].addObj(new CustomImage('images/fish2.png', 190, 230, 21, 17));
+
+        // 사각형, 다각형 - 버튼
+        frame_list[1].addObj(new Rectangle(30, 565, 60, 50, BUTTON_STROKE, '#C8D1FC'));
+        frame_list[1].addObj(new Polygon(60, 590, 22, 8, 0, BUTTON_STROKE, '#9F958C'));
+
+        //////////////////////////////////////////////////////////////////////////////////////////////////
+        //////////////////////////////////////////////////////////////////////////////////////////////////
+
+        // 업그레이드 화면 - 화면 2
+        frame_list.push(new Frame(UPGRADE_STATE));
+
+        // 사각형 - '영구 업그레이드'
+        frame_list[2].addObj(new Rectangle(0, 80, canvas.width, 40, BUTTON_STROKE, '#274CFF'));
+        frame_list[2].addObj(new Text('20px xx-large palatino', 110, 110, '영구 업그레이드 :', 'white', 'white'));
+        frame_list[2].addObj(new Line([{x:0, y:83}, {x:canvas.width, y:83}], 'white', 3));
+
+        // 사각형 - 버튼
+        frame_list[2].addObj(new Rectangle(10, 20, 180, 30, BUTTON_STROKE, '#F5E9D1'));
+
+        // 물고기 머니
+        money_texts.push(new Text('25px showcard gothic', 70, 44, money, 'white', BUTTON_STROKE));
+        frame_list[2].addObj(money_texts[2]);
+
+        frame_list[2].addObj(new Rectangle(170, 20, 180, 30, BUTTON_STROKE, '#EFBE00'));
+        frame_list[2].addObj(new Text('16px palantino', 230, 42, '코인 구매'));
+        frame_list[2].addObj(new Rectangle(323, 45, 27, 10, '#DD040F', '#DD040F'));
+        frame_list[2].addObj(new Text('11px verdana', 323, 54, 'FREE', 'white', 'white'));
+
+        BUTTON_WIDTH = 320;
+
+        // 상위 버튼들
+        frame_list[2].addObj(new Rectangle(20, 130, BUTTON_WIDTH, 60, BUTTON_STROKE, '#C8D1FC'));
+        frame_list[2].addObj(new Text('14px impact', 160, 145, '스폰서 비디오'));
+        frame_list[2].addObj(new Rectangle(31, 140, 44, 40, '#4E465B', '#4E465B'));
+        frame_list[2].addObj(new Rectangle(95, 153, 225, 30, BUTTON_STROKE, '#42CD05'));
+        frame_list[2].addObj(new Text('11px tohama', 135, 172, '무료 물고기 500마리 받아가세요!'));
+        frame_list[2].addObj(new Rectangle(20, 200, BUTTON_WIDTH, 60, BUTTON_STROKE, '#F5CF00'));
+        frame_list[2].addObj(new Text('16px verdana', 280, 250, '5, 900', '#4E2F00', '#4E2F00'));
+
+        str_list = ['물고기 더블 보너스', '게임 속 모든 노란색 물고기의 가치', '가 영구적으로 두 배 증가합니다'];
+        str_list2 = ["500m 후 녹색 물고기 (2배) 등장", "      무적 질주 8초간 유지", "   5초간 물고기 보너스 (4배)"];
+        for(let i=0;i<3;i++) {
+            frame_list[2].addObj(new Text('13px impact', 30, 220+16*i, str_list[i], '#4E2F00', '#4E2F00'));
+
+            // 하단 버튼들
+            frame_list[2].addObj(new Rectangle(20, 280+130*i, BUTTON_WIDTH, 110, BUTTON_STROKE, '#F5E9D1'));
+            frame_list[2].addObj(new Rectangle(30, 290+130*i, 80, 90, BUTTON_STROKE, '#E5AD00'));
+            frame_list[2].addObj(new Text('14px palantino', 125, 336+130*i, str_list2[i]));
+
+            // money 버튼
+            frame_list[2].addObj(new Rectangle(145, 350+130*i, 160, 30, BUTTON_STROKE, '#42CD05'));
+            money_btns.push(new Path2D());
+            money_btns[2+i].rect(145, 350+130*i, 160, 30);
+
+            frame_list[2].addObj(new Text('25px showcard gothic', 210, 374+130*i, '500', 'white', BUTTON_STROKE));
+
+            if(i < 2) 
+                frame_list[2].addObj(new CustomImage('images/fish.png', 136, 343+130*i, 50, 40));
+        }
+
+        // 다각형 - 별
+        STAR_COLOR = '#E0C494';
+        for(let i=0; i<3; i++) {
+            for(let j=0; j<6; j++) {
+                frame_list[2].addObj(new Polygon(150+j*29, 300+130*i, 15, 3, 0, STAR_COLOR, STAR_COLOR));
+                frame_list[2].addObj(new Polygon(150+j*29, 300+130*i, 15, 3, 180*9, STAR_COLOR, STAR_COLOR));
+            }
+        }
+
+        //  직선 - "+"
+        frame_list[2].addObj(new Line(p1, 'black'));
+        frame_list[2].addObj(new Line(p2, 'black'));
+
+        // 이미지 - 생선, 아이템
+        frame_list[2].addObj(new CustomImage('images/fish.png', 88, 146, 50, 40));
+        frame_list[2].addObj(new CustomImage('images/fish.png', 2, 13, 50, 40));
+        frame_list[2].addObj(new CustomImage('images/fish3.png', 280, 200, 50, 40));
+        frame_list[2].addObj(new CustomImage('images/game_item2.png', 35, 307, 70, 55));
+        frame_list[2].addObj(new CustomImage('images/game_item.png', 31, 420, 80, 90));
+
+        // 베지어곡선 - 밑바닥
+        frame_list[2].addObj(new BezeirCurve(end1, control1, "#B2875A", 75));
+
+        // 뒤로가기 버튼
+        var backBtn = new Path2D();
+        backBtn.rect(10, 580, 60, 50);
+        frame_list[2].addObj(new Rectangle(10, 580, 60, 50, BUTTON_STROKE, '#C8D1FC'));
+
+        // 삼각형, 베지어곡선 - 뒤로가기
+        frame_list[2].addObj(new Triangle([{x:15, y:600}, {x:30, y:590}, {x:35, y:610}], BUTTON_STROKE, 'red', true));
+        frame_list[2].addObj(new BezeirCurve([{x:32, y:600}, {x:25, y:620}],
+                                [{x:70, y:595}, {x:75, y:615}],'red', 9));
+
+        // 펭귄 추가
+        for(let i=0; i<2; i++) {
+            penguins.push(new Penguin(PENGUIN_COLORS[p_color_idx]));
+            frame_list[i].addObj(penguins[i]);
+        }
+
+        // 이벤트 핸들러 - 클릭 (click)
+        canvas.addEventListener('click', function(e) {
+            if(state == HOME_STATE) {  // 화면0일 때
+                if(context.isPointInPath(okayBtn, e.offsetX, e.offsetY)) {
+                    // 오케이 버튼 내부에 있는지 확인 --> GAME_STATE(화면 1)로 변경
+                    state = GAME_STATE;
+                    changeState();
+                } else if(context.isPointInPath(greenBtn, e.offsetX, e.offsetY)) {
+                    // 그린펭귄 버튼 내부에 있는지 확인 --> UPGRADE_STATE(화면 2)로 변경
+                    state = UPGRADE_STATE;
+                    changeState();
+                } else if(context.isPointInPath(arrow_red_left, e.offsetX, e.offsetY)) {
+                    updatePenguinColor(-1);
+                } else if(context.isPointInPath(arrow_red_right, e.offsetX, e.offsetY)) {
+                    updatePenguinColor(1);
+                } else if(context.isPointInPath(money_btns[0], e.offsetX, e.offsetY)) {
+                    updateMoney(500);
+                } else if(context.isPointInPath(money_btns[1], e.offsetX, e.offsetY)) {
+                    updateMoney(1000);
+                }
+            } else if(state == UPGRADE_STATE) {     // 화면1일 때
+                if(context.isPointInPath(backBtn, e.offsetX, e.offsetY)) {
+                    // 뒤로가기 버튼 내부에 있는지 확인 --> HOME_STATE(화면 0)로 변경
+                    state = HOME_STATE;
+                    changeState();
+                } else if(context.isPointInPath(money_btns[2], e.offsetX, e.offsetY) 
+                        || context.isPointInPath(money_btns[3], e.offsetX, e.offsetY)
+                        || context.isPointInPath(money_btns[4], e.offsetX, e.offsetY)) {
+                    updateMoney(500);
+                }
+            }
+        });
+
+        // 첫 시작
+        state = 0;
+        changeState();
+
+        //interval 함수 - 1초마다 실행
+        var interval = setInterval(function() {
+            if(state == GAME_STATE) {
+                penguins[state].updateGap();
+                frame_list[state].update();
+            }
+        }, 100);
+    </script>
+</body>
+</html>
