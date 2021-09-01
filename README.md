@@ -6,3 +6,6 @@ Canvas를 사용하여 슈퍼펭귄의 3가지 화면을 묘사하였다.
 ## 동작화면
 ![슈퍼펭귄1](https://user-images.githubusercontent.com/39071676/122630010-cbd47800-d0fb-11eb-8dcb-05b90f195af4.JPG)
 ![슈퍼펭귄2](https://user-images.githubusercontent.com/39071676/122630040-03dbbb00-d0fc-11eb-976f-341edaf7b6c2.JPG)
+
+## 시연화면
+![슈퍼펭귄](https://user-images.githubusercontent.com/39071676/131690780-dead3a56-fc0d-4c26-9558-481c427e1ba2.gif)
